@@ -1,3 +1,4 @@
+from datetime import datetime
 import unittest
 from ..stock import Stock
 
@@ -6,6 +7,10 @@ class StockTest(unittest.TestCase):
         stock = Stock("GOOG")
         self.assertIsNone(stock.price)
 
-# if __name__ == "__main__":
-#     unittest.main()
-
+    def test_stock_update(self):
+        """An update should set the price on the stock object
+        We will be using the `datetime` module for the timestamp
+        """
+        goog = Stock("GOOG")
+        goog.update(datetime(2014, 2, 12), price=10)
+        self.assertEqual(10, goog.price)
