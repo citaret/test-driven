@@ -1,11 +1,14 @@
+from datetime import timedelta
 from enum import Enum
 
-from timeseries import TimeSeries
+from .timeseries import TimeSeries, MovingAverage, NotEnoughDataException
+
 
 class StockSignal(Enum):
     buy = 1
     neutral = 0
     sell = -1
+
 
 class Stock:
     LONG_TERM_TIMESPAN = 10
@@ -15,11 +18,6 @@ class Stock:
         self.symbol = symbol
         self.history = TimeSeries()
 
-    def update(self, timestamp, price):
-        if price < 0:
-            raise ValueError("price should not be negative")
-        self.history.update(timestamp, price)
-
     @property
     def price(self):
         try:
@@ -27,42 +25,29 @@ class Stock:
         except IndexError:
             return None
 
+    def update(self, timestamp, price):
+        if price < 0:
+            raise ValueError("price should not be negative")
+        self.history.update(timestamp, price)
+
     def is_increasing_trend(self):
         return self.history[-3].value < self.history[-2].value < self.history[-1].value
 
-    def _is_crossover_below_to_above(self, prev_ma, prev_reference_ma,
-                                         current_ma, current_reference_ma):
-        return prev_ma < prev_reference_ma and current_ma > current_reference_ma
+    def _is_crossover_below_to_above(self, on_date, ma, reference_ma):
+        prev_date = on_date - timedelta(1)
+        return (ma.value_on(prev_date) < reference_ma.value_on(prev_date)
+                and ma.value_on(on_date) > reference_ma.value_on(on_date))
 
     def get_crossover_signal(self, on_date):
-        NUM_DAYS = self.LONG_TERM_TIMESPAN + 1
-        closing_price_list = self.history.get_closing_price_list(on_date, NUM_DAYS)
-
-        if len(closing_price_list) < NUM_DAYS:
+        long_term_ma = MovingAverage(self.history, self.LONG_TERM_TIMESPAN)
+        short_term_ma = MovingAverage(self.history, self.SHORT_TERM_TIMESPAN)
+        try:
+            if self._is_crossover_below_to_above( on_date, short_term_ma, long_term_ma):
+                return StockSignal.buy
+            if self._is_crossover_below_to_above( on_date, long_term_ma, short_term_ma):
+                return StockSignal.sell
+        except NotEnoughDataException:
             return StockSignal.neutral
 
-        long_term_series = closing_price_list[-self.LONG_TERM_TIMESPAN:]
-        prev_long_term_series = \
-                closing_price_list[-self.LONG_TERM_TIMESPAN-1:-1]
-        short_term_series = closing_price_list[-self.SHORT_TERM_TIMESPAN:]
-        prev_short_term_series = \
-                closing_price_list[-self.SHORT_TERM_TIMESPAN-1:-1]
-
-        long_term_ma = sum([update.value
-            for update in long_term_series]) / self.LONG_TERM_TIMESPAN
-        prev_long_term_ma = sum([update.value
-            for update in prev_long_term_series]) / self.LONG_TERM_TIMESPAN
-        short_term_ma = sum([update.value
-            for update in short_term_series]) / self.SHORT_TERM_TIMESPAN
-        prev_short_term_ma = sum([update.value
-            for update in prev_short_term_series]) / self.SHORT_TERM_TIMESPAN
-
-        if self._is_crossover_below_to_above(prev_short_term_ma, prev_long_term_ma,
-                                             short_term_ma, long_term_ma):
-                return StockSignal.buy
-
-        if self._is_crossover_below_to_above(prev_long_term_ma, prev_short_term_ma,
-                                             long_term_ma, short_term_ma):
-                return StockSignal.sell
-
         return StockSignal.neutral
+
